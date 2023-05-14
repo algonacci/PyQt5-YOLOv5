@@ -4,24 +4,58 @@ from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QPushButton, QFil
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtCore import Qt
 
+
+def scale_coords(img_size, coords, img_shape):
+    # img_size: Tuple (width, height) of original image size
+    # coords: Tensor of shape (N, 4) containing bounding box coordinates in the original image space
+    # img_shape: Tuple (height, width) of resized image shape
+
+    height_ratio = img_shape[0] / img_size[1]
+    width_ratio = img_shape[1] / img_size[0]
+    coords[:, 0] *= width_ratio  # x1
+    coords[:, 1] *= height_ratio  # y1
+    coords[:, 2] *= width_ratio  # x2
+    coords[:, 3] *= height_ratio  # y2
+
+    return coords
+
+
 class YOLOv5Detector:
     def __init__(self, weights, conf_thresh=0.5, nms_thresh=0.5):
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.model  = torch.load('yolov5s.pt', map_location=torch.device('cpu'))
+        self.device = torch.device(
+            "cuda" if torch.cuda.is_available() else "cpu")
+        checkpoint = torch.load(weights, map_location=self.device)
+        self.model = checkpoint["model"]
+        self.model.to(self.device).eval()
         self.conf_thresh = conf_thresh
         self.nms_thresh = nms_thresh
 
     def detect(self, image_path):
         img = cv2.imread(image_path)
-        results = self.model(img)
-        results.render()
-        for det in results.xyxy[0]:
-            if det[4] > self.conf_thresh:
-                x1, y1, x2, y2 = det[:4].tolist()
-                cv2.rectangle(img, (int(x1), int(y1)), (int(x2), int(y2)), (255, 0, 0), 2)
-                label = f"{results.names[int(det[5])]} {det[4]:.2f}"
-                cv2.putText(img, label, (int(x1), int(y1) - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+        model = torch.hub.load(
+            "ultralytics/yolov5", "custom", path="yolov5s.pt", force_reload=True)
+        result = model(img)
+
+        bbox_raw = result.xyxy[0][0]
+
+        bbox = []
+        for bound in bbox_raw:
+            bbox.append(int(bound.item()))
+        bbox = bbox[:4]
+
+        new_image = img.copy()
+        cv2.rectangle(new_image, (bbox[0], bbox[1]),
+                      (bbox[2], bbox[3]), (255, 0, 0), 5)
+
+        # label = f"{result.names[0]} {bbox_raw[4]:.2f}"
+        # cv2.putText(new_image, label, (bbox[0], bbox[1] - 10),
+        #             cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
+
+        img = cv2.cvtColor(new_image, cv2.COLOR_RGB2BGR)
         return img
+
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -46,20 +80,25 @@ class MainWindow(QMainWindow):
     def browse_image(self):
         options = QFileDialog.Options()
         options |= QFileDialog.DontUseNativeDialog
-        file_name, _ = QFileDialog.getOpenFileName(self, "Select Image", "", "Image Files (*.jpg *.jpeg *.png *.bmp)", options=options)
+        file_name, _ = QFileDialog.getOpenFileName(
+            self, "Select Image", "", "Image Files (*.jpg *.jpeg *.png *.bmp)", options=options)
         if file_name:
             self.image_path = file_name
             pixmap = QPixmap(file_name)
-            self.label_image.setPixmap(pixmap.scaled(self.label_image.width(), self.label_image.height(), Qt.KeepAspectRatio))
+            self.label_image.setPixmap(pixmap.scaled(
+                self.label_image.width(), self.label_image.height(), Qt.KeepAspectRatio))
 
     def detect_objects(self):
         if not self.image_path:
             return
-        detector = YOLOv5Detector('/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/PyQt5/best.pt')
+        detector = YOLOv5Detector(
+            'yolov5s.pt')
         image = detector.detect(self.image_path)
         cv2.imwrite('output.jpg', image)
         pixmap = QPixmap('output.jpg')
-        self.label_image.setPixmap(pixmap.scaled(self.label_image.width(), self.label_image.height(), Qt.KeepAspectRatio))
+        self.label_image.setPixmap(pixmap.scaled(
+            self.label_image.width(), self.label_image.height(), Qt.KeepAspectRatio))
+
 
 if __name__ == "__main__":
     app = QApplication([])
