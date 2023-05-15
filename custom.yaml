@@ -1,0 +1,7 @@
+# Model parameters
+nc: 2 # Number of classes (change to the appropriate number of classes)
+
+# Class names
+names:
+  0: "lubang"
+  1: "retak"

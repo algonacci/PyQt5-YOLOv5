@@ -3,6 +3,7 @@ import cv2
 from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QPushButton, QFileDialog
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtCore import Qt
+import yaml
 
 
 def scale_coords(img_size, coords, img_shape):
@@ -21,7 +22,7 @@ def scale_coords(img_size, coords, img_shape):
 
 
 class YOLOv5Detector:
-    def __init__(self, weights, conf_thresh=0.5, nms_thresh=0.5):
+    def __init__(self, weights, conf_thresh=0.5, nms_thresh=0.5, yaml_path='custom.yaml'):
         self.device = torch.device(
             "cuda" if torch.cuda.is_available() else "cpu")
         checkpoint = torch.load(weights, map_location=self.device)
@@ -29,13 +30,21 @@ class YOLOv5Detector:
         self.model.to(self.device).eval()
         self.conf_thresh = conf_thresh
         self.nms_thresh = nms_thresh
+        self.yaml_path = yaml_path
+        self.class_names = self.load_class_names()
+
+    def load_class_names(self):
+        with open(self.yaml_path, 'r') as f:
+            data = yaml.safe_load(f)
+        return data['names']
 
     def detect(self, image_path):
         img = cv2.imread(image_path)
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        model = torch.hub.load("ultralytics/yolov5",
+                               "custom", path="best.pt", force_reload=True)
+        model.classes = self.class_names
 
-        model = torch.hub.load(
-            "ultralytics/yolov5", "custom", path="yolov5s.pt", force_reload=True)
         result = model(img)
 
         bbox_raw = result.xyxy[0][0]
@@ -92,7 +101,7 @@ class MainWindow(QMainWindow):
         if not self.image_path:
             return
         detector = YOLOv5Detector(
-            'yolov5s.pt')
+            'best.pt')
         image = detector.detect(self.image_path)
         cv2.imwrite('output.jpg', image)
         pixmap = QPixmap('output.jpg')
